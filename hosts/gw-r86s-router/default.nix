@@ -11,7 +11,10 @@ in
     ../../modules/users/peter/age.nix
     ../../modules/common/network-tools.nix
   ];
-  
+ 
+  # Boot parameters for eMCC
+  boot.kernelParams = [ "intremap=off" "irqpoll" ];
+
   # Basic system configuration
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
