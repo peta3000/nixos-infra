@@ -1,150 +1,136 @@
 { config, lib, pkgs, ... }:
-
 let
   nets = import ../../lib/networks.nix;
-  bridge = nets.lan.bridge;
+  b = nets.lan.bridge;
+  wan = config.router.wan.interface;
+in {
+  networking.nftables.enable = true;
 
-  # Helper: create a deterministic per-port network config
-  # (More reliable than "Name=a b c", and it wins over generic 99-* defaults.)
-  mkLanPort = ifname: {
-    matchConfig.Name = ifname;
-    networkConfig = {
-      Bridge = bridge;
-      ConfigureWithoutCarrier = true;
+  # Enhanced firewall ruleset matching OpenWrt configuration
+  # Implements all inter-VLAN policies and specific restrictions
+  networking.nftables.ruleset = ''
+    flush ruleset
 
-      # LAN ports must not become DHCP clients
-      DHCP = "no";
-      IPv6AcceptRA = false;
-      LinkLocalAddressing = "no";
-    };
+    define WAN = ${wan}
+    define LAN = ${b}
+    define GUEST = ${b}.20
+    define IOT = ${b}.30
+    define PRINTER = ${b}.40
+    define DMZ = ${b}.50
 
-    # VLAN 1 untagged everywhere; VLANs 20/30/40/50 tagged everywhere (for now)
-    extraConfig = ''
-      [BridgeVLAN]
-      VLAN=1
-      PVID=1
-      EgressUntagged=1
+    table inet filter {
+      chain input {
+        type filter hook input priority 0;
+        policy drop;
 
-      [BridgeVLAN]
-      VLAN=20
-      [BridgeVLAN]
-      VLAN=30
-      [BridgeVLAN]
-      VLAN=40
-      [BridgeVLAN]
-      VLAN=50
-    '';
-  };
-in
-{
-  # Host decides WAN interface via hosts/<name>/default.nix
-  options.router.wan.interface = lib.mkOption {
-    type = lib.types.str;
-    description = "Physical WAN interface name (e.g. enp1s0 for testing, enp4s0d1 for production).";
-  };
-    # Ensure systemd-networkd is running
-    systemd.network.enable = true;
+        iif "lo" accept
+        ct state established,related accept
 
-    # Create the bridge with VLAN filtering
-    systemd.network.netdevs."${bridge}" = {
-      netdevConfig = {
-        Name = bridge;
-        Kind = "bridge";
-      };
-      bridgeConfig = {
-        VLANFiltering = true;
-      };
-    };
+        # ICMP - allow ping for debugging and network health
+        ip protocol icmp accept
+        ip6 nexthdr icmpv6 accept
 
-    # Dedicated Management Port (Standalone DHCP client)
-    systemd.network.networks."05-mgmt-enp1s0" = {
-      matchConfig.Name = "enp1s0";
-      networkConfig.DHCP = "ipv4";
-    };
+        # Allow DHCP/DNS to router from all internal networks
+        iifname $LAN udp dport { 53, 67, 68 } accept
+        iifname $LAN tcp dport 53 accept
+        iifname $GUEST udp dport { 53, 67, 68 } accept
+        iifname $GUEST tcp dport 53 accept
+        iifname $IOT udp dport { 53, 67, 68 } accept
+        iifname $IOT tcp dport 53 accept
+        iifname $PRINTER udp dport { 53, 67, 68 } accept
+        iifname $PRINTER tcp dport 53 accept
+        iifname $DMZ udp dport { 53, 67, 68 } accept
+        iifname $DMZ tcp dport 53 accept
 
-    # LAN ports -> bridge (one .network per port, stable matching)
-    systemd.network.networks."10-lan-enp2s0" = mkLanPort "enp2s0";
-    systemd.network.networks."10-lan-enp4s0" = mkLanPort "enp4s0";
+        # Allow SSH management only from VLAN1 (LAN) and Tailscale
+        iifname { $LAN, "tailscale0" } tcp dport 22 accept
 
-    # Make port enp3s0 (ETH2) the mgmt port, carrieng only VLAN 1
-    # untagged (PVID) and no tagged VLANs
-    systemd.network.networks."10-lan-enp3s0" = {
-      matchConfig.Name = "enp3s0";
-      networkConfig = {
-        Bridge = bridge;
-        ConfigureWithoutCarrier = true;
-        DHCP = "no";
-        IPv6AcceptRA = false;
-        LinkLocalAddressing = "no";
-      };
-      extraConfig = ''
-        [BridgeVLAN]
-        VLAN=1
-        PVID=1
-        EgressUntagged=1
-      '';
-    };
+        # WAN input rules (essential services only)
+        # DHCP client renewal
+        iifname $WAN udp dport 68 accept
+        # Allow ping from WAN (matching OpenWrt)
+        iifname $WAN ip protocol icmp icmp type echo-request accept
+        # IGMP for multicast
+        iifname $WAN ip protocol igmp accept
 
+        # IPv6 essential services from WAN
+        iifname $WAN ip6 nexthdr udp udp dport 546 accept  # DHCPv6
+        iifname $WAN ip6 saddr fe80::/10 ip6 nexthdr icmpv6 icmpv6 type { 130, 131, 132, 143 } accept  # MLD
+        iifname $WAN ip6 nexthdr icmpv6 icmpv6 type { echo-request, echo-reply, destination-unreachable, packet-too-big, time-exceeded, nd-router-solicit, nd-neighbor-solicit, nd-router-advert, nd-neighbor-advert } limit rate 1000/second accept
 
-    # WAN (DHCP for testing; later you can change to static if you want)
-    systemd.network.networks."wan" = {
-      matchConfig.Name = config.router.wan.interface;
-      networkConfig = {
-        DHCP = "ipv4";
-        IPv6AcceptRA = true;
-      };
-    };
+        # VPN support (if needed)
+        # iifname $WAN ip protocol esp accept  # IPSec ESP
+        # iifname $WAN udp dport 500 accept    # ISAKMP
 
-    # L3 on VLAN 1 (bridge itself)
-    systemd.network.networks."${bridge}-base" = {
-      matchConfig.Name = bridge;
-      networkConfig = {
-        ConfigureWithoutCarrier = true;
+        # Block everything else from WAN
+      }
 
-        # Tell networkd that VLAN netdevs exist on this link
-        VLAN = [ "${bridge}.20" "${bridge}.30" "${bridge}.40" "${bridge}.50" ];
-      };
-      address = [ nets.vlans.lan.cidr ];
-    };
+      chain forward {
+        type filter hook forward priority 0;
+        policy drop;
 
-    # Create VLAN netdevs on the bridge for the tagged VLANs
-    systemd.network.netdevs."${bridge}.20" = {
-      netdevConfig = { Name = "${bridge}.20"; Kind = "vlan"; };
-      vlanConfig.Id = 20;
-    };
-    systemd.network.netdevs."${bridge}.30" = {
-      netdevConfig = { Name = "${bridge}.30"; Kind = "vlan"; };
-      vlanConfig.Id = 30;
-    };
-    systemd.network.netdevs."${bridge}.40" = {
-      netdevConfig = { Name = "${bridge}.40"; Kind = "vlan"; };
-      vlanConfig.Id = 40;
-    };
-    systemd.network.netdevs."${bridge}.50" = {
-      netdevConfig = { Name = "${bridge}.50"; Kind = "vlan"; };
-      vlanConfig.Id = 50;
-    };
+        ct state established,related accept
 
-    # Assign addresses to VLAN interfaces
-    systemd.network.networks."vlan20" = {
-      matchConfig.Name = "${bridge}.20";
-      networkConfig.ConfigureWithoutCarrier = true;
-      address = [ nets.vlans.guest.cidr ];
-    };
-    systemd.network.networks."vlan30" = {
-      matchConfig.Name = "${bridge}.30";
-      networkConfig.ConfigureWithoutCarrier = true;
-      address = [ nets.vlans.iot.cidr ];
-    };
-    systemd.network.networks."vlan40" = {
-      matchConfig.Name = "${bridge}.40";
-      networkConfig.ConfigureWithoutCarrier = true;
-      address = [ nets.vlans.printer.cidr ];
-    };
-    systemd.network.networks."vlan50" = {
-      matchConfig.Name = "${bridge}.50";
-      networkConfig.ConfigureWithoutCarrier = true;
-      address = [ nets.vlans.dmz.cidr ];
-    };
-  };
+        # === WAN INBOUND RULES ===
+        # Allow HTTP/HTTPS to DMZ from WAN (web services)
+        iifname $WAN oifname $DMZ tcp dport { 80, 443 } accept
+
+        # === INTERNAL -> WAN (Internet Access) ===
+        # All internal networks can access internet
+        iifname { $LAN, $GUEST, $IOT, $PRINTER, $DMZ } oifname $WAN accept
+
+        # === LAN (Management) -> Internal Networks ===
+        # LAN has full access to all segments (management network)
+        iifname $LAN oifname { $GUEST, $IOT, $PRINTER, $DMZ } accept
+
+        # === GUEST NETWORK POLICIES ===
+        # Guest -> Printer network (for printing access)
+        iifname $GUEST oifname $PRINTER accept
+        
+        # Block Guest access to specific router/management IPs
+        iifname $GUEST oifname $LAN ip daddr { 192.168.5.1, 192.168.5.110 } reject
+        iifname $GUEST oifname $PRINTER ip daddr { 192.168.40.1, 192.168.40.217 } reject with tcp reset
+        
+        # Block Guest access to printer admin interface
+        iifname $GUEST oifname $PRINTER ip daddr 192.168.40.230 tcp dport { 80, 443 } reject with tcp reset
+
+        # === IOT NETWORK POLICIES ===
+        # IoT is isolated - only internet access (already allowed above)
+        # No lateral movement to other VLANs
+
+        # === PRINTER NETWORK POLICIES ===
+        # Printers are mostly isolated - only internet and admin from LAN
+        # (Optional) Allow printer -> LAN for specific services
+        # iifname $PRINTER oifname $LAN tcp dport { 445, 139 } accept  # SMB if needed
+
+        # === DMZ POLICIES ===
+        # DMZ isolated except for internet access
+        # Web services accessible from WAN (handled above)
+
+        # === UNIFI CONTROLLER RULES ===
+        # Allow access to UniFi controller on upstream network
+        iifname $LAN oifname $WAN ip daddr 192.168.1.166 tcp dport { 8080, 8443 } accept
+        iifname $LAN oifname $WAN ip daddr 192.168.1.166 udp dport 3478 accept  # STUN
+        
+        # Allow APs to inform controller (from any internal network)
+        iifname { $LAN, $GUEST, $IOT, $PRINTER } oifname $WAN ip daddr 192.168.1.166 tcp dport 8080 accept
+
+        # === IPv6 FORWARDING ===
+        # Allow essential IPv6 forwarding
+        iifname $WAN ip6 nexthdr icmpv6 icmpv6 type { echo-request, echo-reply, destination-unreachable, packet-too-big, time-exceeded } limit rate 1000/second accept
+
+        # Drop everything else
+      }
+    }
+
+    table inet nat {
+      chain postrouting {
+        type nat hook postrouting priority 100;
+        policy accept;
+
+        # Masquerade internal networks going to WAN
+        oifname $WAN masquerade
+      }
+    }
+  '';
 }
