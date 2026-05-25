@@ -53,7 +53,10 @@ in
       wantedBy = [ "multi-user.target" ];
       after = [ "network.target" "systemd-networkd.service" ];
       wants = [ "systemd-networkd.service" ];
-      
+     
+      bindsTo = [ "sys-subsystem-net-devices-${lib.replaceStrings ["."] ["-"] wan}.device" ];
+      after = [ "sys-subsystem-net-devices-${lib.replaceStrings ["."] ["-"] wan}.device" ];
+
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;

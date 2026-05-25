@@ -10,7 +10,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-WAN_IFACE="enp1s0"  # Adjust based on your config
+WAN_IFACE="enp4s0d1"  # Adjust based on your config
 
 echo -e "${BLUE}=== SQM Service Status ===${NC}"
 systemctl status sqm-setup --no-pager || echo "SQM service not found"
