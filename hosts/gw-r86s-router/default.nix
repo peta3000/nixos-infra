@@ -44,7 +44,7 @@ in
 
   # Enable SQM with CAKE for bufferbloat control
   router.sqm = {
-    enable = true;
+    enable = false;
     
     # Set these to ~5-10% below your actual ISP speeds
     # This is crucial for SQM to work effectively
