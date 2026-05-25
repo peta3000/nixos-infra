@@ -42,11 +42,8 @@ in {
         iifname $DMZ udp dport { 53, 67, 68 } accept
         iifname $DMZ tcp dport 53 accept
 
-        # Allow SSH management from VLAN1 (LAN)
-        iifname $LAN tcp dport 22 accept
-        
-        # Allow SSH access via tailscale
-        iifname "tailscale0" tcp dport 22 accept
+        # Allow SSH management only from VLAN1 (LAN) and Tailscale
+        iifname { $LAN, "tailscale0" } tcp dport 22 accept
 
         # WAN input rules (essential services only)
         # DHCP client renewal
@@ -64,9 +61,6 @@ in {
         # VPN support (if needed)
         # iifname $WAN ip protocol esp accept  # IPSec ESP
         # iifname $WAN udp dport 500 accept    # ISAKMP
-
-        # TEMP: allow SSH from upstream LAN on WAN (remove in production)
-        iifname $WAN ip saddr 192.168.3.0/24 tcp dport 22 accept
 
         # Block everything else from WAN
       }
