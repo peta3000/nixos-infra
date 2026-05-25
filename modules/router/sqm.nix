@@ -51,11 +51,16 @@ in
     systemd.services.sqm-setup = {
       description = "Smart Queue Management (SQM) with CAKE";
       wantedBy = [ "multi-user.target" ];
-      after = [ "network.target" "systemd-networkd.service" ];
+      
+      # Merge the dependencies into one list:
+      after = [ 
+        "network.target" 
+        "systemd-networkd.service" 
+        "sys-subsystem-net-devices-${lib.replaceStrings ["."] ["-"] wan}.device" 
+      ];
       wants = [ "systemd-networkd.service" ];
-     
       bindsTo = [ "sys-subsystem-net-devices-${lib.replaceStrings ["."] ["-"] wan}.device" ];
-      after = [ "sys-subsystem-net-devices-${lib.replaceStrings ["."] ["-"] wan}.device" ];
+
 
       serviceConfig = {
         Type = "oneshot";
