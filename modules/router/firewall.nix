@@ -42,8 +42,8 @@ in {
         iifname $DMZ udp dport { 53, 67, 68 } accept
         iifname $DMZ tcp dport 53 accept
 
-        # Allow SSH management only from VLAN1 (LAN) and Tailscale
-        iifname { $LAN, "tailscale0" } tcp dport 22 accept
+        # Allow SSH management only from VLAN1 (LAN), Tailscale and the dedicated MGMT port
+        iifname { $LAN, "tailscale0" "enp1s0" } tcp dport 22 accept
 
         # WAN input rules (essential services only)
         # DHCP client renewal

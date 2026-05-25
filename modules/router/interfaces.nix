@@ -58,6 +58,12 @@ in
       };
     };
 
+    # Dedicated Management Port (Standalone DHCP client)
+    systemd.network.networks."05-mgmt-enp1s0" = {
+      matchConfig.Name = "enp1s0";
+      networkConfig.DHCP = "ipv4";
+    };
+
     # LAN ports -> bridge (one .network per port, stable matching)
     systemd.network.networks."10-lan-enp2s0" = mkLanPort "enp2s0";
     systemd.network.networks."10-lan-enp4s0" = mkLanPort "enp4s0";
