@@ -10,8 +10,8 @@
   # Basic admin access
   services.openssh.enable = true;
   services.openssh.settings = {
-    PasswordAuthentication = false;
-    KbdInteractiveAuthentication = false;
+    PasswordAuthentication = true;
+    KbdInteractiveAuthentication = true;
     PermitRootLogin = "no";
   };
 
