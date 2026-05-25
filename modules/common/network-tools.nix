@@ -28,6 +28,10 @@
       # Analysis (CLI versions)
       wireshark-cli # tshark, etc.
 
+      # Custom diagnostic scripts (bundled from the repo)
+      (pkgs.writeShellScriptBin "test-firewall" (builtins.readFile ../../test-firewall.sh))
+      (pkgs.writeShellScriptBin "test-sqm" (builtins.readFile ../../test-sqm.sh))
+
       # Custom DHCP lease viewer
       (pkgs.writeShellScriptBin "show-leases" ''
         printf "%-19s %-17s %-15s %-20s %s\n" "Expires" "MAC Address" "IP Address" "Hostname" "Client ID"
