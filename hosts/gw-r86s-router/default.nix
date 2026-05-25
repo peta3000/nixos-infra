@@ -2,111 +2,150 @@
 
 let
   nets = import ../../lib/networks.nix;
+  bridge = nets.lan.bridge;
+
+  # Helper: create a deterministic per-port network config
+  # (More reliable than "Name=a b c", and it wins over generic 99-* defaults.)
+  mkLanPort = ifname: {
+    matchConfig.Name = ifname;
+    networkConfig = {
+      Bridge = bridge;
+      ConfigureWithoutCarrier = true;
+
+      # LAN ports must not become DHCP clients
+      DHCP = "no";
+      IPv6AcceptRA = false;
+      LinkLocalAddressing = "no";
+    };
+
+    # VLAN 1 untagged everywhere; VLANs 20/30/40/50 tagged everywhere (for now)
+    extraConfig = ''
+      [BridgeVLAN]
+      VLAN=1
+      PVID=1
+      EgressUntagged=1
+
+      [BridgeVLAN]
+      VLAN=20
+      [BridgeVLAN]
+      VLAN=30
+      [BridgeVLAN]
+      VLAN=40
+      [BridgeVLAN]
+      VLAN=50
+    '';
+  };
 in
 {
-  imports = [
-    ./hardware-configuration.nix
-    ../../modules/base/default.nix
-    ../../modules/router/default.nix
-    ../../modules/users/peter/age.nix
-    ../../modules/common/network-tools.nix
-  ];
- 
-  # Boot parameters for eMCC
-  boot.kernelParams = [ "intremap=off" "irqpoll" ];
-
-  # Basic system configuration
-  boot.loader.systemd-boot.enable = true;
-  boot.loader.efi.canTouchEfiVariables = true;
-  
-  # Use latest kernel for best SQM/CAKE support
-  boot.kernelPackages = pkgs.linuxPackages_latest;
-
-  # Swapfile configuration (optional - only if needed)
-  swapDevices = [
-    { device = "/swapfile"; size = 2048; } # 2GB swapfile
-  ];
-  # Alternative: No swap for router with sufficient RAM
-  # swapDevices = [ ];
-
-  networking.hostName = "gw-r86s-router";
-  
-  # Basic services
-  services.openssh.enable = true;
-  
-  # Router uses a fully custom nftables ruleset
-  networking.firewall.enable = false;
-
-  # Choose WAN interface:
-  # - testing: enp1s0
-  # - production: enp5s0d1
-  router.wan.interface = nets.wan.production;
-
-  # Enable SQM with CAKE for bufferbloat control
-  router.sqm = {
-    enable = true;
-    
-    # Set these to ~5-10% below your actual ISP speeds
-    # This is crucial for SQM to work effectively
-    upstreamBandwidth = "900mbit";   # Adjust for your upload speed
-    downstreamBandwidth = "900mbit"; # Adjust for your download speed
-    
-    # Adjust overhead based on your connection type:
-    # Ethernet: 14, VLAN: 18, PPPoE: 30, PPPoE+VLAN: 34
-    overheadBytes = 18;  # For VLAN tagged connection
-    
-    queueSize = "1514";  # MTU (1500) + overhead (14)
+  # Host decides WAN interface via hosts/<name>/default.nix
+  options.router.wan.interface = lib.mkOption {
+    description = "Physical WAN interface name (e.g. enp1s0 for testing, enp4s0d1 for production).";
   };
 
-  # Optional: static addressing on WAN instead of DHCP (uncomment if needed)
-  # systemd.network.networks."wan".networkConfig.DHCP = "no";
-  # systemd.network.networks."wan".address = [ "192.168.1.179/24" ];
-  # systemd.network.networks."wan".routes = [
-  #   { routeConfig.Gateway = "192.168.1.1"; }
-  # ];
-  # networking.nameservers = [ "192.168.1.10" "192.168.1.1" ];
-  
-  # User configuration
-  users.users.peter = {
-    isNormalUser = true;
-    extraGroups = [ "wheel" "video" "audio" ];
-    initialPassword = "peter"; # Change this after first login!
+  config = {
+    # Ensure systemd-networkd is running
+    systemd.network.enable = true;
+
+    # Create the bridge with VLAN filtering
+    systemd.network.netdevs."${bridge}" = {
+      netdevConfig = {
+        Name = bridge;
+        Kind = "bridge";
+      };
+      bridgeConfig = {
+        VLANFiltering = true;
+      };
+    };
+
+    # Dedicated Management Port (Standalone DHCP client)
+    systemd.network.networks."05-mgmt-enp1s0" = {
+      matchConfig.Name = "enp1s0";
+      networkConfig.DHCP = "ipv4";
+    };
+
+    # LAN ports -> bridge (one .network per port, stable matching)
+    systemd.network.networks."10-lan-enp2s0" = mkLanPort "enp2s0";
+    systemd.network.networks."10-lan-enp4s0" = mkLanPort "enp4s0";
+
+    # Make port enp3s0 (ETH2) the mgmt port, carrieng only VLAN 1
+    # untagged (PVID) and no tagged VLANs
+    systemd.network.networks."10-lan-enp3s0" = {
+      matchConfig.Name = "enp3s0";
+      networkConfig = {
+        Bridge = bridge;
+        ConfigureWithoutCarrier = true;
+        DHCP = "no";
+        IPv6AcceptRA = false;
+        LinkLocalAddressing = "no";
+      };
+      extraConfig = ''
+        [BridgeVLAN]
+        VLAN=1
+        PVID=1
+        EgressUntagged=1
+      '';
+    };
+
+
+    # WAN (DHCP for testing; later you can change to static if you want)
+    systemd.network.networks."wan" = {
+      matchConfig.Name = config.router.wan.interface;
+      networkConfig = {
+        DHCP = "ipv4";
+        IPv6AcceptRA = true;
+      };
+    };
+
+    # L3 on VLAN 1 (bridge itself)
+    systemd.network.networks."${bridge}-base" = {
+      matchConfig.Name = bridge;
+      networkConfig = {
+        ConfigureWithoutCarrier = true;
+
+        # Tell networkd that VLAN netdevs exist on this link
+        VLAN = [ "${bridge}.20" "${bridge}.30" "${bridge}.40" "${bridge}.50" ];
+      };
+      address = [ nets.vlans.lan.cidr ];
+    };
+
+    # Create VLAN netdevs on the bridge for the tagged VLANs
+    systemd.network.netdevs."${bridge}.20" = {
+      netdevConfig = { Name = "${bridge}.20"; Kind = "vlan"; };
+      vlanConfig.Id = 20;
+    };
+    systemd.network.netdevs."${bridge}.30" = {
+      netdevConfig = { Name = "${bridge}.30"; Kind = "vlan"; };
+      vlanConfig.Id = 30;
+    };
+    systemd.network.netdevs."${bridge}.40" = {
+      netdevConfig = { Name = "${bridge}.40"; Kind = "vlan"; };
+      vlanConfig.Id = 40;
+    };
+    systemd.network.netdevs."${bridge}.50" = {
+      netdevConfig = { Name = "${bridge}.50"; Kind = "vlan"; };
+      vlanConfig.Id = 50;
+    };
+
+    # Assign addresses to VLAN interfaces
+    systemd.network.networks."vlan20" = {
+      matchConfig.Name = "${bridge}.20";
+      networkConfig.ConfigureWithoutCarrier = true;
+      address = [ nets.vlans.guest.cidr ];
+    };
+    systemd.network.networks."vlan30" = {
+      matchConfig.Name = "${bridge}.30";
+      networkConfig.ConfigureWithoutCarrier = true;
+      address = [ nets.vlans.iot.cidr ];
+    };
+    systemd.network.networks."vlan40" = {
+      matchConfig.Name = "${bridge}.40";
+      networkConfig.ConfigureWithoutCarrier = true;
+      address = [ nets.vlans.printer.cidr ];
+    };
+    systemd.network.networks."vlan50" = {
+      matchConfig.Name = "${bridge}.50";
+      networkConfig.ConfigureWithoutCarrier = true;
+      address = [ nets.vlans.dmz.cidr ];
+    };
   };
-
-
-  # Allow sudo without password for users
-  security.sudo.extraRules = [
-    {
-      users = [ "peter" ];
-      commands = [ { command = "ALL"; options = [ "NOPASSWD" ]; } ];
-    }
-  ];
-
-  # SSH keys for user peter
-  users.users.peter.openssh.authorizedKeys.keys = [
-    "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDEP5rIrh/WIZvCS8Tb4xkLtCDQAxs27Guxnxv0BQLs2iIe0kSmM+xXcvNCMSrmbNAzq6boSJsQ4PIVQCaSxNRrhcFH6Q1pY9y7MvbRqT72V++dQQtVKMkoVh4QQ5aobsml8KQx7QS6fuwEtMCE/8yoJPoyh1rqAqSS7/9MvA72Imr8LNdAkECDVkzrn3T8/gGJ9gEYFJrLpmm+lEzIU27P/x1BUQOpPbPMourkKdhSBgvr3LQCugEfzdUfskO8YCHmB+5KkCBXizpIH3QiN1TuZuPAT0ZacMAM1gZcZtEWr04K7hXdDgPCJzxDjfruoiOSqFvBYtdtECAb8AGicFqVuIGzIdYVP5pxWKwUR0LUXpSUKIqqF3gKc0HvSejxJ8NA79a2BS7ef7Plou4GmkfH+NdDti0iaS7pi6aqUTMVgGOvbDVTJT1L8clIdgLPomHL9kXae9EuiGHFSqpEC42FRFcmj30heWttG/OAo4Msbcs+ArruAskHJFN366rXRZM="
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICozYQT8O5X3hEKU7toJho+r66As0qaCt3nYXR0gRU0j"
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMFYKNEteD8lN4R6n2yfw1oVet2Tb4FVBpP/qcy5h06 peter@pop-os"
-    "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDyH25Sswp2z9JA7g0+hLo51tKxORqPTH8t9E/HZcL229ryaRIS/zGxnN6HfmRtHxf3F8QgreROqnU6n8su8yX5ISIXDKpvo+v9iiFdwAZWwB9J0p31PeDQtS7XEgHeWy5UOnkKd9DIPTPI6GkA1BVp0lEUE8Kb0NjI9MUkwK5Zo7BjgjzDGUEa0T4SGnH0uBGyODeOVe5HrSoIRQmejpDFbfVBPR08gn1emWGMf8K0jRQtgDRmT0sCvQ7jEHJjWJMk31OEC6jZgjcBBWdgo+D7nQhBn+6X1ISZ+EXE+WVuB4gj+by5juV7uBIakbbllTux9bPSbH9t3lmQF1ONrrRgaQ5m8yZE3z8CrplCN06OABQMDNvMJiBgEBrbGRAolnmsE8EYzEg8+3c1dPmMsc8oczx5slK3vVdIR8CunQajM+d8+0eIyxA7wD9SFHsbUj4pl/ZxR4do7n4sGoijUp+cyVEgo3sKFKpEv0JNqNdVHSyHpbGQ19iMLsR6piCrVT8= peter@pop-os"
-  ];
-
-  # Enable tailscale
-  my.tailscale = {
-    enable = true;
-    tags = [ "tag:router" ];
-  };
-
-  # Age test secret
-  age.secrets.test-secret = {
-    file = ../../secrets/test-secret.age;
-    owner = "peter";
-    group = "users";
-  };
-
-  # Enable Network-Tools
-  my.networkTools.enable = true;
-
-
-  system.stateVersion = "25.11";
-
 }
