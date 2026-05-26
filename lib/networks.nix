@@ -11,7 +11,7 @@
   lan = {
     bridge = "br-switch";
     # Initial bridge/trunk ports (LAN side)
-    ports = [ "enp2s0" "enp3s0" "enp5s0" ];
+    ports = [ "enp2s0" "enp3s0" "enp4s0" ];
   };
 
   # VLANs: VLAN 1 untagged (PVID) on all bridge ports.
