@@ -107,6 +107,18 @@ in
         VLAN = [ "${bridge}.20" "${bridge}.30" "${bridge}.40" "${bridge}.50" ];
       };
       address = [ nets.vlans.lan.cidr ];
+
+      # Add these VLANs to the bridge's filter so the CPU can see them
+      extraConfig = ''
+        [BridgeVLAN]
+        VLAN=20
+        [BridgeVLAN]
+        VLAN=30
+        [BridgeVLAN]
+        VLAN=40
+        [BridgeVLAN]
+        VLAN=50
+      '';
     };
 
     # Create VLAN netdevs on the bridge for the tagged VLANs
