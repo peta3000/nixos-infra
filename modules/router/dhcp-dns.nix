@@ -39,6 +39,8 @@ in
       dhcp-host = [
         "14:33:75:17:0C:DD,192.168.5.110,Zyxel--NWA50AX-PRO"
         "30:05:5C:4E:BF:FC,192.168.5.230,BRN30055C4EBFFC"
+        "80:ee:73:fb:e5:e2,192.168.5.117,shuttle-lan"
+        "00:e0:4c:68:06:53,192.168.30.117,shuttle-iot"
       ];
     };
   };
