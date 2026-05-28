@@ -77,7 +77,12 @@ in {
 
         # === INTERNAL -> WAN (Internet Access) ===
         # All internal networks can access internet
-        iifname { $LAN, $GUEST, $IOT, $PRINTER, $DMZ } oifname $WAN accept
+        iifname { $LAN, $GUEST, $DMZ } oifname $WAN accept
+
+        # IoT and Printer networks: Internet access only for whitelisted IPs
+        define IOT_WHITELIST = { 192.168.30.254 }
+        ip saddr $IOT_WHITELIST iifname { $IOT, $PRINTER } oifname $WAN accept
+        iifname { $IOT, $PRINTER } oifname $WAN drop
 
         # === LAN (Management) -> Internal Networks ===
         # LAN has full access to all segments (management network)
