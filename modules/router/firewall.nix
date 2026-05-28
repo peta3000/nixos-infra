@@ -35,7 +35,7 @@ in {
         iifname $LAN tcp dport 53 accept
         iifname $GUEST udp dport { 53, 67, 68 } accept
         iifname $GUEST tcp dport 53 accept
-        iifname $IOT udp dport { 53, 67, 68 } accept
+        iifname $IOT udp dport { 53, 67, 68, 123 } accept
         iifname $IOT tcp dport 53 accept
         iifname $PRINTER udp dport { 53, 67, 68 } accept
         iifname $PRINTER tcp dport 53 accept
