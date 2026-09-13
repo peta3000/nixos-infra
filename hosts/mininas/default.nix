@@ -107,7 +107,7 @@
   # Enable SSH
   services.openssh = {
     enable = true;
-    settings.PermitRootLogin = "yes"; # Temporary, for initial setup
+  #  settings.PermitRootLogin = "yes"; # Temporary, for initial setup
   };
 
 
