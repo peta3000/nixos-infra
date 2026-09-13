@@ -19,7 +19,7 @@
   networking.hostName = "mininas"; # Define your hostname.
 
   # Configure network connections interactively with nmcli or nmtui.
-  networking.networkmanager.enable = true;
+  # networking.networkmanager.enable = true;
 
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
