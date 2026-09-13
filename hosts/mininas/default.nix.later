@@ -1,0 +1,38 @@
+# hosts/mininas/default.nix
+{ config, lib, pkgs, ... }:
+
+{
+  imports = [
+    ./hardware-configuration.nix             # Generated during Phase 1
+    ../../modules/base/default.nix          # Shared SSH/Firewall/Base
+    ../../modules/common/tailscale.nix      # Shared VPN
+    ../../modules/common/network-tools.nix  # Shared diagnostic tools
+    ../../modules/nas/storage.nix           # NEW: MergerFS & SnapRAID
+    ../../modules/nas/tiering.nix           # NEW: Movement scripts
+  ];
+
+  networking.hostName = "mininas";
+
+  # Enable the shared network tools from your repo
+  my.networkTools.enable = true;
+  my.tailscale.enable = true;
+
+  # NAS specific packages
+  environment.systemPackages = with pkgs; [
+    mergerfs
+    mergerfs-tools
+    snapraid
+    smartmontools
+    scrutiny
+  ];
+
+  # User configuration (reusing your existing peter config pattern)
+  users.users.peter = {
+    isNormalUser = true;
+    extraGroups = [ "wheel" "video" ];
+    # Use the same keys as your router/workstation
+    openssh.authorizedKeys.keys = (import ../gw-r86s-router/default.nix { inherit config lib pkgs; }).users.users.peter.openssh.authorizedKeys.keys;
+  };
+
+  system.stateVersion = "26.05";
+}

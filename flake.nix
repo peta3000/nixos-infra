@@ -21,8 +21,17 @@
       };
       
       # Future hosts can be added here
-      # monitoring-pi = nixpkgs.lib.nixosSystem { ... };
-
+      
+      # new nas host for 2.5" HDDs
+      mininas = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          ./hosts/mininas/default.nix
+          disko.nixosModules.disko
+          agenix.nixosModules.default
+        ];
+      };
+      
       # <‑‑ NEW workstation host
       ms-01-workstation = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
