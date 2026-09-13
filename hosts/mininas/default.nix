@@ -24,6 +24,14 @@
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   
+  # Allow sudo without password for user peter
+  security.sudo.extraRules = [
+    {
+      users = [ "peter" ];
+      commands = [ { command = "ALL"; options = [ "NOPASSWD" ]; } ];
+    }
+  ];
+
 
   # Set your time zone.
   # time.timeZone = "Europe/Amsterdam";
