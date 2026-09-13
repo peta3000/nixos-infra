@@ -84,6 +84,15 @@
   };
 
 
+  # Packages
+  environment.systemPackages = with pkgs; [
+    smartmontools
+    tmux           # <--- Add this
+    mergerfs       # (Optional, for later)
+    pciutils
+  ];
+
+
   # Define a user account. Don't forget to set a password with ‘passwd’.
   # users.users.alice = {
   #   isNormalUser = true;
