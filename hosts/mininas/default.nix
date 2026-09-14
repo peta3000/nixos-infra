@@ -49,10 +49,16 @@
   # };
 
 
+  # Scutiny for HDD status/health overview
   services.scrutiny = {
     enable = true;
     collector.enable = true;
-    settings.web.listen = "0.0.0.0"; # Allow access from your network
+    settings = {
+      web.listen = {
+        host = "0.0.0.0";
+        port = 8080;
+      };
+    };
   };
 
 
