@@ -18,7 +18,9 @@
 
   networking.hostName = "mininas"; # Define your hostname.
 
-  networking.firewall.allowedTCPPorts = [ 8080 ]; # open port for scrutiny service
+
+  # allow ports for different services: SSH (22), Scrutiny (8080)
+  networking.firewall.allowedTCPPorts = [ 22 8080 ]; # open port for scrutiny service
 
   # Configure network connections interactively with nmcli or nmtui.
   # networking.networkmanager.enable = true;
@@ -143,9 +145,6 @@
   #  settings.PermitRootLogin = "yes"; # Temporary, for initial setup
   };
 
-
-  # Allow SSH through the firewall
-  networking.firewall.allowedTCPPorts = [ 22 ];
 
 
   # Enable the OpenSSH daemon.
