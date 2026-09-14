@@ -18,6 +18,8 @@
 
   networking.hostName = "mininas"; # Define your hostname.
 
+  networking.firewall.allowedTCPPorts = [ 8080 ]; # open port for scrutiny service
+
   # Configure network connections interactively with nmcli or nmtui.
   # networking.networkmanager.enable = true;
 
