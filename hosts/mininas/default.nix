@@ -48,6 +48,14 @@
   #   useXkbConfig = true; # use xkb.options in tty.
   # };
 
+
+  services.scrutiny = {
+    enable = true;
+    collector.enable = true;
+    settings.web.listen = "0.0.0.0"; # Allow access from your network
+  };
+
+
   # Enable the X11 windowing system.
   # services.xserver.enable = true;
 
